@@ -24,8 +24,12 @@ import sqlite3
 from typing import List, Optional
 from io import BytesIO
 
-from PIL import Image, ImageDraw, ImageFont
-from gtts import gTTS
+# Старое
+# from telegram import Update, ChatAction, InputFile
+
+# Новое
+from telegram import Update, InputFile
+from telegram.constants import ChatAction
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 import requests
