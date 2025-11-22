@@ -1,4 +1,3 @@
-# Используем официальный Python 3.11 slim образ
 FROM python:3.11-slim
 
 # Устанавливаем системные зависимости
@@ -11,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # Обновляем pip
-RUN pip install --upgrade pip
+RUN pip install --upgrade pip --root-user-action=ignore
 
 # Рабочая директория
 WORKDIR /app
@@ -19,10 +18,10 @@ WORKDIR /app
 # Копируем зависимости
 COPY requirements.txt /app/requirements.txt
 
-# Устанавливаем Python-библиотеки
-RUN pip install --no-cache-dir -r requirements.txt
+# Устанавливаем Python-библиотеки с флагом ignore root warning
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt
 
-# Копируем весь код приложения
+# Копируем код приложения
 COPY . /app
 
 # Переменные окружения
