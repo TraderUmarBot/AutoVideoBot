@@ -1,7 +1,7 @@
 python-telegram-bot==20.7
 moviepy==1.0.3
-ffmpeg-python==0.2.1
-gTTS==2.3.2
+ffmpeg-python==0.2.0
 Pillow==9.5.0
+gTTS==2.3.2
 requests==2.31.0
 openai==0.27.0
