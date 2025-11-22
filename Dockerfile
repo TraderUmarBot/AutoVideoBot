@@ -1,29 +1,35 @@
-# Use official Python image
+# Используем официальный Python 3.11 slim образ
 FROM python:3.11-slim
 
-# Install ffmpeg and system deps
+# Устанавливаем системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     build-essential \
     git \
     libsndfile1 \
+    fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 
-# Create app dir
+# Обновляем pip
+RUN pip install --upgrade pip
+
+# Рабочая директория
 WORKDIR /app
 
-# Copy requirements and install
+# Копируем зависимости
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy code
+# Устанавливаем Python-библиотеки
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем весь код приложения
 COPY . /app
 
-# Set environment
+# Переменные окружения
 ENV PYTHONUNBUFFERED=1
 
-# Expose port (not required for polling bot)
+# Порт для локального теста (не обязателен для polling)
 EXPOSE 8080
 
-# Run
+# Запуск бота
 CMD ["python", "main.py"]
