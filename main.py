@@ -1,7 +1,7 @@
 import os
 import requests
+import threading
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -12,7 +12,6 @@ from telegram.ext import (
 )
 from moviepy.editor import VideoFileClip, concatenate_videoclips, AudioFileClip
 import openai
-import random
 
 # ============================
 # 🔑 ENV VARIABLES
@@ -70,31 +69,50 @@ def generate_voice(text, voice="alloy"):
         raise Exception(f"Ошибка генерации голоса: {e}")
 
 # ============================
-# 🔥 Поиск тематических видео через Pexels API
+# 🔥 Параллельная загрузка видео
 # ============================
+def download_video(url, path):
+    try:
+        r = requests.get(url)
+        with open(path, "wb") as f:
+            f.write(r.content)
+    except Exception as e:
+        print(f"Ошибка скачивания {url}: {e}")
+
 def get_thematic_videos(query, num=3):
     headers = {"Authorization": PEXELS_API_KEY}
     url = f"https://api.pexels.com/videos/search?query={query}&per_page={num}"
     r = requests.get(url, headers=headers).json()
+
     videos = []
+    threads = []
+
     for i, video in enumerate(r.get("videos", [])):
         video_url = video["video_files"][0]["link"]
         local_path = f"stock_{i}.mp4"
-        video_data = requests.get(video_url).content
-        with open(local_path, "wb") as f:
-            f.write(video_data)
         videos.append(local_path)
+        t = threading.Thread(target=download_video, args=(video_url, local_path))
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
     if not videos:
-        # Если ничего не найдено, берём дефолтные видео
         default = [
             "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
         ]
+        videos = []
+        threads = []
         for i, url in enumerate(default):
-            data = requests.get(url).content
             path = f"stock_default_{i}.mp4"
-            with open(path, "wb") as f:
-                f.write(data)
+            t = threading.Thread(target=download_video, args=(url, path))
+            t.start()
+            threads.append(t)
             videos.append(path)
+        for t in threads:
+            t.join()
+
     return videos
 
 # ============================
