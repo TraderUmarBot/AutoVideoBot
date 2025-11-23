@@ -97,7 +97,7 @@ def generate_video(images, audio_path, vertical=True):
 # ============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    # Сначала выбор языка
+    # Выбор языка
     keyboard = [
         [
             InlineKeyboardButton("Русский 🇷🇺", callback_data=f"lang|ru|{user_text}"),
@@ -117,11 +117,10 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("lang"):
         _, lang, text = data.split("|")
-        # Сохраняем выбор языка в context.user_data
         context.user_data["language"] = lang
         context.user_data["text"] = text
 
-        # Далее выбор формата видео
+        # Выбор формата видео
         keyboard = [
             [
                 InlineKeyboardButton("Вертикальное 🎥", callback_data="format|vertical"),
@@ -137,21 +136,29 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = context.user_data.get("language", "ru")
         text = context.user_data.get("text", "")
 
-        await query.edit_message_text("Генерирую SEO и видео…")
-
-        # SEO
+        # 1️⃣ Генерация SEO
+        msg = await query.edit_message_text("Генерируем SEO…")
         seo_text = generate_seo(text, language=lang)
         await query.message.reply_text(f"SEO создано:\n{seo_text}")
 
-        # Многосценочные картинки (3 сцены)
-        images = [generate_image(text) for _ in range(3)]
+        # 2️⃣ Генерация изображений с прогрессом
+        images = []
+        for i in range(3):  # 3 сцены
+            await query.message.reply_text(f"Создаём изображение {i+1} из 3…")
+            img = generate_image(text)
+            images.append(img)
 
-        # Голос
+        # 3️⃣ Генерация озвучки
+        await query.message.reply_text("Создаём озвучку…")
         voice = generate_voice(text)
 
-        # Видео
+        # 4️⃣ Сборка видео
+        await query.message.reply_text("Собираем видео…")
         video = generate_video(images, voice, vertical=vertical)
+
+        # 5️⃣ Готово!
         await query.message.reply_video(video=InputFile("result.mp4"))
+        await query.message.reply_text("✅ Видео готово!")
 
 # ============================
 # 🔥 MAIN
