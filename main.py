@@ -12,7 +12,6 @@ from telegram.ext import (
 )
 from moviepy.editor import VideoFileClip, concatenate_videoclips, AudioFileClip
 from gtts import gTTS
-import random
 
 # ============================
 # 🔑 ENV VARIABLES
@@ -25,15 +24,14 @@ PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # бесплатный ключ
 # ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Я бесплатный бот, который создаёт видео 🎬.\n\n"
-        "Отправь текст и выбери язык и формат видео!"
+        "Привет! Я бесплатный бот для создания видео 🎬.\n\n"
+        "Отправь тему видео, и выбери язык, формат и длительность!"
     )
 
 # ============================
-# 🔥 Бесплатная SEO генерация
+# 🔥 SEO генерация (бесплатно)
 # ============================
 def generate_seo(prompt, language="ru"):
-    # Простейший бесплатный вариант: возвращаем текст + title + теги
     title = f"Видео о {prompt}"
     description = f"Узнайте всё о {prompt}! Интересные факты и видео."
     tags = f"{prompt}, видео, интересное, факты"
@@ -48,7 +46,7 @@ def generate_voice(text, lang="ru"):
     return "voice.mp3"
 
 # ============================
-# 🔥 Параллельная загрузка видео через Pexels
+# 🔥 Параллельная загрузка видео
 # ============================
 def download_video(url, path):
     try:
@@ -78,10 +76,7 @@ def get_thematic_videos(query, num=3):
         t.join()
 
     if not videos:
-        # Дефолтные бесплатные видео
-        default = [
-            "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
-        ]
+        default = ["https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"]
         videos = []
         threads = []
         for i, url in enumerate(default):
@@ -96,13 +91,13 @@ def get_thematic_videos(query, num=3):
     return videos
 
 # ============================
-# 🔥 Создание видео с озвучкой
+# 🔥 Создание видео
 # ============================
-def generate_video(stock_files, audio_path, vertical=True):
+def generate_video(stock_files, audio_path, vertical=True, clip_length=10):
     clips = []
     width, height = (1080, 1920) if vertical else (1280, 720)
     for file in stock_files:
-        clip = VideoFileClip(file).resize(newsize=(width, height)).subclip(0, 10)
+        clip = VideoFileClip(file).resize(newsize=(width, height)).subclip(0, clip_length)
         clips.append(clip)
     final_clip = concatenate_videoclips(clips)
     audio = AudioFileClip(audio_path)
@@ -117,11 +112,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     context.user_data["text"] = user_text
 
+    # Выбор языка
     keyboard = [
-        [
-            InlineKeyboardButton("Русский 🇷🇺", callback_data="lang|ru"),
-            InlineKeyboardButton("Английский 🇬🇧", callback_data="lang|en"),
-        ]
+        [InlineKeyboardButton("Русский 🇷🇺", callback_data="lang|ru"),
+         InlineKeyboardButton("Английский 🇬🇧", callback_data="lang|en")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите язык видео:", reply_markup=reply_markup)
@@ -137,11 +131,11 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("lang"):
         lang = data.split("|")[1]
         context.user_data["language"] = lang
+
+        # Выбор формата видео
         keyboard = [
-            [
-                InlineKeyboardButton("Вертикальное 🎥", callback_data="format|vertical"),
-                InlineKeyboardButton("Горизонтальное 📺", callback_data="format|horizontal"),
-            ]
+            [InlineKeyboardButton("Вертикальное 🎥", callback_data="format|vertical"),
+             InlineKeyboardButton("Горизонтальное 📺", callback_data="format|horizontal")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("Выберите формат видео:", reply_markup=reply_markup)
@@ -149,27 +143,42 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("format"):
         orientation = data.split("|")[1]
         vertical = orientation == "vertical"
+        context.user_data["vertical"] = vertical
+
+        # Выбор длительности видео
+        keyboard = [
+            [InlineKeyboardButton("30 сек ⏱", callback_data="duration|30"),
+             InlineKeyboardButton("1 мин 🕐", callback_data="duration|60")],
+            [InlineKeyboardButton("5 мин ⏳", callback_data="duration|300"),
+             InlineKeyboardButton("10 мин ⏳", callback_data="duration|600"),
+             InlineKeyboardButton("15 мин ⏳", callback_data="duration|900")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("Выберите длительность видео:", reply_markup=reply_markup)
+
+    elif data.startswith("duration"):
+        duration_sec = int(data.split("|")[1])
+        vertical = context.user_data.get("vertical", True)
         lang = context.user_data.get("language", "ru")
         text = context.user_data.get("text", "")
 
-        # 1️⃣ SEO
+        # Количество клипов = длительность / 10 сек на клип
+        clip_length = 10
+        num_clips = max(1, duration_sec // clip_length)
+
         await query.edit_message_text("Генерируем SEO…")
         seo_text = generate_seo(text, language=lang)
         await query.message.reply_text(f"SEO создано:\n{seo_text}")
 
-        # 2️⃣ Тематические видео
         await query.message.reply_text("Ищем тематические видео…")
-        stock_files = get_thematic_videos(query=text, num=3)
+        stock_files = get_thematic_videos(query=text, num=num_clips)
 
-        # 3️⃣ Озвучка
         await query.message.reply_text("Создаём озвучку…")
         voice = generate_voice(text, lang=lang)
 
-        # 4️⃣ Видео
         await query.message.reply_text("Собираем финальное видео…")
-        video = generate_video(stock_files, voice, vertical=vertical)
+        video = generate_video(stock_files, voice, vertical=vertical, clip_length=clip_length)
 
-        # 5️⃣ Готово!
         await query.message.reply_video(video=InputFile("result.mp4"))
         await query.message.reply_text("✅ Видео готово!")
 
