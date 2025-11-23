@@ -1,5 +1,5 @@
 import os
-import time
+import requests
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -10,16 +10,16 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-from PIL import Image
-import requests
+from moviepy.editor import VideoFileClip, concatenate_videoclips, AudioFileClip
 import openai
+import random
 
 # ============================
 # 🔑 ENV VARIABLES
 # ============================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # новый ключ
 openai.api_key = OPENAI_API_KEY
 
 # ============================
@@ -27,7 +27,7 @@ openai.api_key = OPENAI_API_KEY
 # ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Я бот, который создаёт видео по твоему сценарию 🎬.\n\n"
+        "Привет! Я бот, который создаёт тематическое видео 🎬.\n\n"
         "Отправь мне текст, и я предложу SEO и видео!"
     )
 
@@ -54,28 +54,7 @@ def generate_seo(prompt, language="ru", style="clickbait"):
         return f"Ошибка генерации SEO: {e}"
 
 # ============================
-# 🔥 AI картинка с повторными попытками
-# ============================
-def generate_image(prompt, size="512x512", retries=3):
-    for attempt in range(retries):
-        try:
-            url = "https://api.openai.com/v1/images/generations"
-            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-            payload = {"prompt": prompt, "size": size}
-            response = requests.post(url, headers=headers, json=payload).json()
-            image_url = response["data"][0]["url"]
-
-            img = Image.open(requests.get(image_url, stream=True).raw)
-            img_path = f"frame_{attempt}.png"
-            img.save(img_path)
-            return img_path
-        except Exception as e:
-            print(f"Ошибка генерации изображения: {e}, попытка {attempt+1}")
-            time.sleep(2)
-    raise Exception("Не удалось сгенерировать изображение после 3 попыток")
-
-# ============================
-# 🔥 Реалистичный TTS через OpenAI
+# 🔥 TTS через OpenAI
 # ============================
 def generate_voice(text, voice="alloy"):
     try:
@@ -91,14 +70,41 @@ def generate_voice(text, voice="alloy"):
         raise Exception(f"Ошибка генерации голоса: {e}")
 
 # ============================
-# 🔥 Создание многосценочного видео
+# 🔥 Поиск тематических видео через Pexels API
 # ============================
-def generate_video(images, audio_path, vertical=True):
+def get_thematic_videos(query, num=3):
+    headers = {"Authorization": PEXELS_API_KEY}
+    url = f"https://api.pexels.com/videos/search?query={query}&per_page={num}"
+    r = requests.get(url, headers=headers).json()
+    videos = []
+    for i, video in enumerate(r.get("videos", [])):
+        video_url = video["video_files"][0]["link"]
+        local_path = f"stock_{i}.mp4"
+        video_data = requests.get(video_url).content
+        with open(local_path, "wb") as f:
+            f.write(video_data)
+        videos.append(local_path)
+    if not videos:
+        # Если ничего не найдено, берём дефолтные видео
+        default = [
+            "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
+        ]
+        for i, url in enumerate(default):
+            data = requests.get(url).content
+            path = f"stock_default_{i}.mp4"
+            with open(path, "wb") as f:
+                f.write(data)
+            videos.append(path)
+    return videos
+
+# ============================
+# 🔥 Создание видео с озвучкой
+# ============================
+def generate_video(stock_files, audio_path, vertical=True):
     clips = []
     width, height = (1080, 1920) if vertical else (1280, 720)
-    duration_per_scene = 10  # 3 сцены → 30 секунд
-    for img_path in images:
-        clip = ImageClip(img_path).set_duration(duration_per_scene).resize(newsize=(width, height))
+    for file in stock_files:
+        clip = VideoFileClip(file).resize(newsize=(width, height)).subclip(0, 10)
         clips.append(clip)
     final_clip = concatenate_videoclips(clips)
     audio = AudioFileClip(audio_path)
@@ -153,20 +159,17 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         seo_text = generate_seo(text, language=lang)
         await query.message.reply_text(f"SEO создано:\n{seo_text}")
 
-        # 2️⃣ Картинки
-        images = []
-        for i in range(3):
-            await query.message.reply_text(f"Создаём изображение {i+1} из 3…")
-            img = generate_image(text)
-            images.append(img)
+        # 2️⃣ Тематические видео
+        await query.message.reply_text("Ищем тематические видео…")
+        stock_files = get_thematic_videos(query=text, num=3)
 
         # 3️⃣ Озвучка
         await query.message.reply_text("Создаём озвучку…")
         voice = generate_voice(text)
 
         # 4️⃣ Видео
-        await query.message.reply_text("Собираем видео…")
-        video = generate_video(images, voice, vertical=vertical)
+        await query.message.reply_text("Собираем финальное видео…")
+        video = generate_video(stock_files, voice, vertical=vertical)
 
         # 5️⃣ Готово!
         await query.message.reply_video(video=InputFile("result.mp4"))
