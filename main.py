@@ -1,10 +1,15 @@
 import os
-from telegram import Update, InputFile
+from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes,
+)
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-from gtts import gTTS
 from PIL import Image
 import requests
 import openai
@@ -17,85 +22,136 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 openai.api_key = OPENAI_API_KEY
 
-
 # ============================
 # 🔥 /start
 # ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! Я бот, который создаёт видео по твоему сценарию 🎬.\n\n"
-        "Отправь мне текст, и я сделаю видео!"
+        "Отправь мне текст, и я предложу SEO и видео!"
     )
 
+# ============================
+# 🔥 SEO генерация
+# ============================
+def generate_seo(prompt, language="ru", style="clickbait"):
+    system_prompt = (
+        f"Ты создаешь SEO для YouTube видео на языке {language}. "
+        "Нужны: Title, Теги, Описание. "
+        "Title кликабельный (clickbait) или документальный (calm)."
+    )
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Тема видео: {prompt}. Стиль: {style}"}
+        ],
+    )
+    return response["choices"][0]["message"]["content"]
 
 # ============================
-# 🔥 Создание AI картинки
+# 🔥 AI картинка
 # ============================
-def generate_image(prompt):
+def generate_image(prompt, size="1024x1024"):
     url = "https://api.openai.com/v1/images/generations"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    payload = {"prompt": prompt, "size": "1024x1024"}
+    payload = {"prompt": prompt, "size": size}
 
     response = requests.post(url, headers=headers, json=payload).json()
     image_url = response["data"][0]["url"]
 
     img = Image.open(requests.get(image_url, stream=True).raw)
     img.save("frame.png")
-
     return "frame.png"
 
-
 # ============================
-# 🔥 Создание голосовой дорожки
+# 🔥 Реалистичный TTS через OpenAI
 # ============================
-def generate_voice(text):
-    tts = gTTS(text, lang="ru")
-    tts.save("voice.mp3")
+def generate_voice(text, voice="alloy"):
+    response = openai.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice=voice,
+        input=text
+    )
+    with open("voice.mp3", "wb") as f:
+        f.write(response)
     return "voice.mp3"
 
-
 # ============================
-# 🔥 Создание видео
+# 🔥 Создание многосценочного видео
 # ============================
-def generate_video(image_path, audio_path):
-    img_clip = ImageClip(image_path).set_duration(7)
+def generate_video(images, audio_path, vertical=True):
+    clips = []
+    width, height = (1080, 1920) if vertical else (1280, 720)
+    for img_path in images:
+        clip = ImageClip(img_path).set_duration(7).resize(newsize=(width, height))
+        clips.append(clip)
+    final_clip = concatenate_videoclips(clips)
     audio = AudioFileClip(audio_path)
-    img_clip = img_clip.set_audio(audio)
-    img_clip.write_videofile("result.mp4", fps=24)
+    final_clip = final_clip.set_audio(audio)
+    final_clip.write_videofile("result.mp4", fps=24)
     return "result.mp4"
 
-
 # ============================
-# 🔥 AI ответ (описание + улучшение текста)
-# ============================
-def improve_prompt(text):
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": f"Перепиши красиво этот текст: {text}"}],
-    )
-    return response["choices"][0]["message"]["content"]
-
-
-# ============================
-# 🔥 Обработка текстового сообщения (главная логика)
+# 🔥 Обработка текста
 # ============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    # Сначала выбор языка
+    keyboard = [
+        [
+            InlineKeyboardButton("Русский 🇷🇺", callback_data=f"lang|ru|{user_text}"),
+            InlineKeyboardButton("Английский 🇬🇧", callback_data=f"lang|en|{user_text}"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Выберите язык видео:", reply_markup=reply_markup)
 
-    await update.message.reply_chat_action(ChatAction.TYPING)
-    improved = improve_prompt(user_text)
+# ============================
+# 🔥 Обработка выбора кнопки
+# ============================
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
 
-    await update.message.reply_text("Создаю изображение…")
-    img = generate_image(improved)
+    if data.startswith("lang"):
+        _, lang, text = data.split("|")
+        # Сохраняем выбор языка в context.user_data
+        context.user_data["language"] = lang
+        context.user_data["text"] = text
 
-    await update.message.reply_text("Создаю озвучку…")
-    voice = generate_voice(improved)
+        # Далее выбор формата видео
+        keyboard = [
+            [
+                InlineKeyboardButton("Вертикальное 🎥", callback_data="format|vertical"),
+                InlineKeyboardButton("Горизонтальное 📺", callback_data="format|horizontal"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("Выберите формат видео:", reply_markup=reply_markup)
 
-    await update.message.reply_text("Собираю видео…")
-    video = generate_video(img, voice)
+    elif data.startswith("format"):
+        _, orientation = data.split("|")
+        vertical = orientation == "vertical"
+        lang = context.user_data.get("language", "ru")
+        text = context.user_data.get("text", "")
 
-    await update.message.reply_video(video=InputFile("result.mp4"))
+        await query.edit_message_text("Генерирую SEO и видео…")
 
+        # SEO
+        seo_text = generate_seo(text, language=lang)
+        await query.message.reply_text(f"SEO создано:\n{seo_text}")
+
+        # Многосценочные картинки (3 сцены)
+        images = [generate_image(text) for _ in range(3)]
+
+        # Голос
+        voice = generate_voice(text)
+
+        # Видео
+        video = generate_video(images, voice, vertical=vertical)
+        await query.message.reply_video(video=InputFile("result.mp4"))
 
 # ============================
 # 🔥 MAIN
@@ -105,10 +161,10 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    app.add_handler(CallbackQueryHandler(handle_button))
 
     print("Bot started!")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
