@@ -1,5 +1,5 @@
 import os
-import threading
+import time
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -20,7 +20,6 @@ import openai
 # ============================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 openai.api_key = OPENAI_API_KEY
 
 # ============================
@@ -55,22 +54,25 @@ def generate_seo(prompt, language="ru", style="clickbait"):
         return f"Ошибка генерации SEO: {e}"
 
 # ============================
-# 🔥 AI картинка
+# 🔥 AI картинка с повторными попытками
 # ============================
-def generate_image(prompt, size="1024x1024"):
-    try:
-        url = "https://api.openai.com/v1/images/generations"
-        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-        payload = {"prompt": prompt, "size": size}
+def generate_image(prompt, size="512x512", retries=3):
+    for attempt in range(retries):
+        try:
+            url = "https://api.openai.com/v1/images/generations"
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+            payload = {"prompt": prompt, "size": size}
+            response = requests.post(url, headers=headers, json=payload).json()
+            image_url = response["data"][0]["url"]
 
-        response = requests.post(url, headers=headers, json=payload).json()
-        image_url = response["data"][0]["url"]
-
-        img = Image.open(requests.get(image_url, stream=True).raw)
-        img.save("frame.png")
-        return "frame.png"
-    except Exception as e:
-        raise Exception(f"Ошибка генерации изображения: {e}")
+            img = Image.open(requests.get(image_url, stream=True).raw)
+            img_path = f"frame_{attempt}.png"
+            img.save(img_path)
+            return img_path
+        except Exception as e:
+            print(f"Ошибка генерации изображения: {e}, попытка {attempt+1}")
+            time.sleep(2)
+    raise Exception("Не удалось сгенерировать изображение после 3 попыток")
 
 # ============================
 # 🔥 Реалистичный TTS через OpenAI
@@ -174,7 +176,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔥 MAIN
 # ============================
 def main():
-    # Если будешь добавлять PORT, можно потом добавить Flask или другой dummy сервер здесь
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
