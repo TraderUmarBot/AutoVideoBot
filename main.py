@@ -1,4 +1,5 @@
 import os
+import threading
 from telegram import Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -38,44 +39,54 @@ def generate_seo(prompt, language="ru", style="clickbait"):
     system_prompt = (
         f"Ты создаешь SEO для YouTube видео на языке {language}. "
         "Нужны: Title, Теги, Описание. "
-        "Title кликабельный (clickbait) или документальный (calm)."
+        "Title кликабельный (clickbait) или спокойный (calm)."
     )
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Тема видео: {prompt}. Стиль: {style}"}
-        ],
-    )
-    return response["choices"][0]["message"]["content"]
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Тема видео: {prompt}. Стиль: {style}"}
+            ],
+            timeout=15
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Ошибка генерации SEO: {e}"
 
 # ============================
 # 🔥 AI картинка
 # ============================
 def generate_image(prompt, size="1024x1024"):
-    url = "https://api.openai.com/v1/images/generations"
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    payload = {"prompt": prompt, "size": size}
+    try:
+        url = "https://api.openai.com/v1/images/generations"
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        payload = {"prompt": prompt, "size": size}
 
-    response = requests.post(url, headers=headers, json=payload).json()
-    image_url = response["data"][0]["url"]
+        response = requests.post(url, headers=headers, json=payload).json()
+        image_url = response["data"][0]["url"]
 
-    img = Image.open(requests.get(image_url, stream=True).raw)
-    img.save("frame.png")
-    return "frame.png"
+        img = Image.open(requests.get(image_url, stream=True).raw)
+        img.save("frame.png")
+        return "frame.png"
+    except Exception as e:
+        raise Exception(f"Ошибка генерации изображения: {e}")
 
 # ============================
 # 🔥 Реалистичный TTS через OpenAI
 # ============================
 def generate_voice(text, voice="alloy"):
-    response = openai.audio.speech.create(
-        model="gpt-4o-mini-tts",
-        voice=voice,
-        input=text
-    )
-    with open("voice.mp3", "wb") as f:
-        f.write(response)
-    return "voice.mp3"
+    try:
+        response = openai.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice=voice,
+            input=text
+        )
+        with open("voice.mp3", "wb") as f:
+            f.write(response)
+        return "voice.mp3"
+    except Exception as e:
+        raise Exception(f"Ошибка генерации голоса: {e}")
 
 # ============================
 # 🔥 Создание многосценочного видео
@@ -83,8 +94,9 @@ def generate_voice(text, voice="alloy"):
 def generate_video(images, audio_path, vertical=True):
     clips = []
     width, height = (1080, 1920) if vertical else (1280, 720)
+    duration_per_scene = 10  # 3 сцены → 30 секунд
     for img_path in images:
-        clip = ImageClip(img_path).set_duration(7).resize(newsize=(width, height))
+        clip = ImageClip(img_path).set_duration(duration_per_scene).resize(newsize=(width, height))
         clips.append(clip)
     final_clip = concatenate_videoclips(clips)
     audio = AudioFileClip(audio_path)
@@ -97,18 +109,19 @@ def generate_video(images, audio_path, vertical=True):
 # ============================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    # Выбор языка
+    context.user_data["text"] = user_text
+
     keyboard = [
         [
-            InlineKeyboardButton("Русский 🇷🇺", callback_data=f"lang|ru|{user_text}"),
-            InlineKeyboardButton("Английский 🇬🇧", callback_data=f"lang|en|{user_text}"),
+            InlineKeyboardButton("Русский 🇷🇺", callback_data="lang|ru"),
+            InlineKeyboardButton("Английский 🇬🇧", callback_data="lang|en"),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите язык видео:", reply_markup=reply_markup)
 
 # ============================
-# 🔥 Обработка выбора кнопки
+# 🔥 Обработка кнопок
 # ============================
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -116,11 +129,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data.startswith("lang"):
-        _, lang, text = data.split("|")
+        lang = data.split("|")[1]
         context.user_data["language"] = lang
-        context.user_data["text"] = text
-
-        # Выбор формата видео
         keyboard = [
             [
                 InlineKeyboardButton("Вертикальное 🎥", callback_data="format|vertical"),
@@ -131,28 +141,28 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Выберите формат видео:", reply_markup=reply_markup)
 
     elif data.startswith("format"):
-        _, orientation = data.split("|")
+        orientation = data.split("|")[1]
         vertical = orientation == "vertical"
         lang = context.user_data.get("language", "ru")
         text = context.user_data.get("text", "")
 
-        # 1️⃣ Генерация SEO
-        msg = await query.edit_message_text("Генерируем SEO…")
+        # 1️⃣ SEO
+        await query.edit_message_text("Генерируем SEO…")
         seo_text = generate_seo(text, language=lang)
         await query.message.reply_text(f"SEO создано:\n{seo_text}")
 
-        # 2️⃣ Генерация изображений с прогрессом
+        # 2️⃣ Картинки
         images = []
-        for i in range(3):  # 3 сцены
+        for i in range(3):
             await query.message.reply_text(f"Создаём изображение {i+1} из 3…")
             img = generate_image(text)
             images.append(img)
 
-        # 3️⃣ Генерация озвучки
+        # 3️⃣ Озвучка
         await query.message.reply_text("Создаём озвучку…")
         voice = generate_voice(text)
 
-        # 4️⃣ Сборка видео
+        # 4️⃣ Видео
         await query.message.reply_text("Собираем видео…")
         video = generate_video(images, voice, vertical=vertical)
 
@@ -164,8 +174,8 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔥 MAIN
 # ============================
 def main():
+    # Если будешь добавлять PORT, можно потом добавить Flask или другой dummy сервер здесь
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
     app.add_handler(CallbackQueryHandler(handle_button))
