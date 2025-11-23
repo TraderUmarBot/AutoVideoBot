@@ -11,65 +11,44 @@ from telegram.ext import (
     ContextTypes,
 )
 from moviepy.editor import VideoFileClip, concatenate_videoclips, AudioFileClip
-import openai
+from gtts import gTTS
+import random
 
 # ============================
 # 🔑 ENV VARIABLES
 # ============================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # новый ключ
-openai.api_key = OPENAI_API_KEY
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")  # бесплатный ключ
 
 # ============================
 # 🔥 /start
 # ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Я бот, который создаёт тематическое видео 🎬.\n\n"
-        "Отправь мне текст, и я предложу SEO и видео!"
+        "Привет! Я бесплатный бот, который создаёт видео 🎬.\n\n"
+        "Отправь текст и выбери язык и формат видео!"
     )
 
 # ============================
-# 🔥 SEO генерация
+# 🔥 Бесплатная SEO генерация
 # ============================
-def generate_seo(prompt, language="ru", style="clickbait"):
-    system_prompt = (
-        f"Ты создаешь SEO для YouTube видео на языке {language}. "
-        "Нужны: Title, Теги, Описание. "
-        "Title кликабельный (clickbait) или спокойный (calm)."
-    )
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Тема видео: {prompt}. Стиль: {style}"}
-            ],
-            timeout=15
-        )
-        return response["choices"][0]["message"]["content"]
-    except Exception as e:
-        return f"Ошибка генерации SEO: {e}"
+def generate_seo(prompt, language="ru"):
+    # Простейший бесплатный вариант: возвращаем текст + title + теги
+    title = f"Видео о {prompt}"
+    description = f"Узнайте всё о {prompt}! Интересные факты и видео."
+    tags = f"{prompt}, видео, интересное, факты"
+    return f"**Title:** {title}\n**Описание:** {description}\n**Теги:** {tags}"
 
 # ============================
-# 🔥 TTS через OpenAI
+# 🔥 Озвучка через gTTS (бесплатно)
 # ============================
-def generate_voice(text, voice="alloy"):
-    try:
-        response = openai.audio.speech.create(
-            model="gpt-4o-mini-tts",
-            voice=voice,
-            input=text
-        )
-        with open("voice.mp3", "wb") as f:
-            f.write(response)
-        return "voice.mp3"
-    except Exception as e:
-        raise Exception(f"Ошибка генерации голоса: {e}")
+def generate_voice(text, lang="ru"):
+    tts = gTTS(text, lang=lang)
+    tts.save("voice.mp3")
+    return "voice.mp3"
 
 # ============================
-# 🔥 Параллельная загрузка видео
+# 🔥 Параллельная загрузка видео через Pexels
 # ============================
 def download_video(url, path):
     try:
@@ -99,6 +78,7 @@ def get_thematic_videos(query, num=3):
         t.join()
 
     if not videos:
+        # Дефолтные бесплатные видео
         default = [
             "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
         ]
@@ -183,7 +163,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 3️⃣ Озвучка
         await query.message.reply_text("Создаём озвучку…")
-        voice = generate_voice(text)
+        voice = generate_voice(text, lang=lang)
 
         # 4️⃣ Видео
         await query.message.reply_text("Собираем финальное видео…")
