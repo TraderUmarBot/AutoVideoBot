@@ -1,6 +1,6 @@
-aiogram==3.10.0 # Обязательно для
-aiogram.utils.text
-alohttp
-# Обязательно для
-aiogram webhooks yfinance
-pandas pandas-ta pytz
+aiogram==3.10.0
+aiohttp
+yfinance
+pandas
+pandas-ta
+pytz
