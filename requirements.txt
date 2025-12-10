@@ -2,5 +2,5 @@ aiogram==3.10.0
 aiohttp
 yfinance
 pandas
-pandas-ta
+git+https://github.com/twopirllc/pandas-ta.git
 pytz
