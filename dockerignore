@@ -1,0 +1,12 @@
+# Игнорируем виртуальное окружение
+•venv venv
+* • рус
+# Игнорируем кэш Python
+pycache
+•mypy_cache
+• pytest_cache
+# Игнорируем специфические для Git файлы
+•git
+•gitignore
+# Игнорируем файлы, которые генерируются IDE
+.vscode/ .idea/
