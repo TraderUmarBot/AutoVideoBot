@@ -2,5 +2,5 @@ aiogram==3.10.0
 aiohttp
 yfinance
 pandas
-pandas-ta==0.3.14b0  # <-- ИСПРАВЛЕНИЕ: указываем конкретную версию
+pandas-ta
 pytz
