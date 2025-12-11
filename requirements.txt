@@ -4,5 +4,4 @@ numpy
 pytz
 yfinance
 aiohttp
-# Ставим pandas-ta через актуальную ветку main
-git+https://github.com/twopirllc/pandas-ta.git@main
+pandas-ta==0.5.1b0
